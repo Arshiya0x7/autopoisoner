@@ -7,7 +7,7 @@ import threading
 
 currentPath = os.path.dirname(__file__)
 
-from print_utils import *
+#from print_utils import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--file", "-f", type=str, required=False, help="file containing URLs to be tested")
@@ -33,7 +33,7 @@ else:
 if args.file :
     allURLs = [line.replace('\n', '') for line in open(args.file, "r")]
 
-CANARY = "ndvyepenbvtidpvyzh.com"
+CANARY = "arshia.com"
 
 headersToFuzz = {
     "x-forwarded-scheme": "http",
@@ -41,12 +41,13 @@ headersToFuzz = {
     "x-forwarded-proto": "http",
     "x-http-method-override": "POST",
     "x-amz-website-redirect-location": CANARY,
+    "authorization": CANARY,
     "x-rewrite-url": CANARY,
     "x-host": CANARY,
     "user-agent": CANARY,
     "handle": CANARY,
     "h0st": CANARY,
-    "Transfer-Encoding": CANARY,
+    #"Transfer-Encoding": CANARY,
     "x-original-url": CANARY,
     "x-original-host": CANARY,
     "x-forwarded-prefix": CANARY,
@@ -96,8 +97,8 @@ def canary_in_response(response : requests.Response):
 
 def crawl_files(URL, response : requests.Response):
     responseText = response.text
-    regexp1 = '(?<=src=")(\/[^\/].+?)(?=")'
-    regexp2 = '(?<=href=")(\/[^\/].+?)(?=")'
+    regexp1 = r'(?<=src=")(\/[^\/].+?)(?=")'
+    regexp2 = r'(?<=href=")(\/[^\/].+?)(?=")'
 
     filesURL = re.findall(regexp1, responseText)
     filesURL += re.findall(regexp2, responseText)
@@ -124,7 +125,10 @@ def use_caching(headers):
 
 def vulnerability_confirmed(responseCandidate : requests.Response, url, randNum, buster):
     try:
-        confirmationResponse = requests.get(f"{url}?cacheBusterX{randNum}={buster}", allow_redirects=False, timeout=TIMEOUT_DELAY)
+        if '?' in url:
+                confirmationResponse = requests.get(f"{url}&cacheBusterX{randNum}={buster}", allow_redirects=False, timeout=TIMEOUT_DELAY)
+        else:
+                confirmationResponse = requests.get(f"{url}?cacheBusterX{randNum}={buster}", allow_redirects=False, timeout=TIMEOUT_DELAY)
     except:
         return False
     if confirmationResponse.status_code == responseCandidate.status_code and confirmationResponse.text == responseCandidate.text:
@@ -142,8 +146,15 @@ def base_request(url):
     randNum = str(random.randrange(9999999999999))
     buster = str(random.randrange(9999999999999))
     try:
-        response = requests.get(f"{url}?cacheBusterX{randNum}={buster}", allow_redirects=False, timeout=TIMEOUT_DELAY)
-    except:
+        if '?' in url:
+            response = requests.get(f"{url}&cacheBusterX{randNum}={buster}", 
+                                allow_redirects=False, 
+                                timeout=TIMEOUT_DELAY)
+        else:
+            response = requests.get(f"{url}?cacheBusterX{randNum}={buster}", 
+                                allow_redirects=False, 
+                                timeout=TIMEOUT_DELAY)
+    except Exception as e:
         return None
 
     return response
@@ -156,7 +167,11 @@ def port_poisoning_check(url, initialResponse):
     host = url.split("://")[1].split("/")[0]
     response = None
     try:
-        response = requests.get(f"{url}?cacheBusterX{randNum}={buster}", headers={"Host": f"{host}:8888"}, allow_redirects=False, timeout=TIMEOUT_DELAY)
+        if '?' in url:
+                response = requests.get(f"{url}&cacheBusterX{randNum}={buster}", headers={"Host": f"{host}:8888"}, allow_redirects=False, timeout=TIMEOUT_DELAY)
+        else:
+                response = requests.get(f"{url}?cacheBusterX{randNum}={buster}", headers={"Host": f"{host}:8888"}, allow_redirects=False, timeout=TIMEOUT_DELAY)
+        
     except:
         return
     explicitCache = str(use_caching(response.headers)).upper()
@@ -195,7 +210,11 @@ def headers_poisoning_check(url, initialResponse):
         buster = str(random.randrange(9999999999999))
         response = None
         try:
-            response = requests.get(f"{url}?cacheBusterX{randNum}={buster}", headers=payload, allow_redirects=False, timeout=TIMEOUT_DELAY)
+            if '?' in url:
+                    response = requests.get(f"{url}&cacheBusterX{randNum}={buster}", headers=payload, allow_redirects=False, timeout=TIMEOUT_DELAY)
+            else:
+                    response = requests.get(f"{url}?cacheBusterX{randNum}={buster}", headers=payload, allow_redirects=False, timeout=TIMEOUT_DELAY)
+                
         except:
             potential_verbose_message("ERROR", args, url)
             print("Request error... Skipping the URL.")
@@ -264,7 +283,42 @@ def sequential_cache_poisoning_check(urlList):
 
     for url in urlList:
         cache_poisoning_check(url)
+def potential_verbose_message(message, args, url="default"):
+    if args.verbose:
+        if message == "ERROR":
+            print(f"[VERBOSE] Request Error for {url}")
+        elif message == "CANARY":
+            print(f"[VERBOSE] CANARY reflection in {url}. Confirming cache poisoning in progress ...")
+        elif message == "STATUS_CODE":
+            print(f"[VERBOSE] STATUS_CODE difference in {url}. Confirming cache poisoning in progress ...")
+        elif message == "LENGTH":
+            print(f"[VERBOSE] LENGTH difference in {url}. Confirming cache poisoning in progress ...")
+        elif message == "UNSUCCESSFUL":
+            print(f"[VERBOSE] Unsuccessful vulnerability confirmation on {url}\n")
+        elif message == "CRAWLING":
+            print(f"[VERBOSE] Crawling. Scanning : {url}")
 
+def behavior_or_confirmed_message(behaviorOrConfirmed, behaviorType, explicitCache, url, header = "default", outputFile = "default", LOCK = "default"):
+
+    messageDict = {"REFLECTION": "\033[43;30mHEADER REFLECTION\033[0m",
+                   "STATUS": "\033[43;30mDIFFERENT STATUS-CODE\033[0m",
+                   "LENGTH": "\033[43;30mDIFFERENT RESPONSE LENGTH\033[0m",
+                   "BEHAVIOR": "\033[43;30m[INTERESTING BEHAVIOR]\033[0m",
+                   "CONFIRMED": "\033[41;30mVULNERABILITY CONFIRMED!\033[0m"
+                   }
+
+    if header != "default":
+        message = f"{messageDict[behaviorOrConfirmed]} {messageDict[behaviorType]} \n \033[34m[INF]\033[0m EXPLICIT CACHE : {explicitCache} \n \033[34m[INF]\033[0m URL: {url} \n \033[34m[INF]\033[0m HEADER : {header}\n**************\n"
+        print(message)
+        if behaviorOrConfirmed == "CONFIRMED":
+            with LOCK:
+                outputFile.write(message)
+    else:
+        message = f"{messageDict[behaviorOrConfirmed]} PORT {messageDict[behaviorType]} \n EXPLICIT CACHE : {explicitCache} \n URL: {url} \n HEADER : {header}\n"
+        print(message)
+        if behaviorOrConfirmed == "CONFIRMED":
+            with LOCK:
+                outputFile.write(message)
 def main():
     if args.url:
         try:
