@@ -108,6 +108,9 @@ git clone https://github.com/Th0h0/autopoisoner.git
 pip install requests
 ```
 
+<img width="1840" height="240" alt="image" src="https://github.com/user-attachments/assets/be8c9571-40d8-4b81-94ba-1bbc06a0180b" />
+
+
 ---
 
 ### License
